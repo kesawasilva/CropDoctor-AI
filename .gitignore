@@ -1,0 +1,18 @@
+# Ignore dataset directories
+RiceLeafsDisease/
+RiceLeafDataset/
+ChiliLeafDataset/
+chili_dataset/
+
+# Ignore extra backup weights & test images
+rice_disease_mobilenetv3.pth
+testImage1.jpg
+testImage2.jpg
+testImage3Healthy.jpg
+
+# Ignore cache & archives
+*.zip
+*.tar.gz
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
