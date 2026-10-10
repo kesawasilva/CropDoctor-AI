@@ -3,64 +3,86 @@ import torch
 import torch.nn as nn
 from torchvision import models, transforms
 from PIL import Image
-import os
-import sys
 
-# 1. Setup device and clean class names
-class_names = ['Bacterial Leaf Blight', 'Brown Spot', 'Healthy', 'Leaf Blast', 'Leaf Scald', 'Narrow Brown Spot']
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# Define class mappings for both crops
+CLASS_NAMES_RICE = [
+    "Bacterial Leaf Blight", 
+    "Brown Spot", 
+    "Healthy", 
+    "Leaf Blast", 
+    "Leaf Scald", 
+    "Narrow Brown Spot"
+]
 
-# 2. Path to your saved weights
-weights_path = "rice_disease_mobilenetv3_6class.pth"
+CLASS_NAMES_CHILI = [
+    "Healthy", 
+    "Leaf Curl", 
+    "Leaf Spot", 
+    "Whitefly", 
+    "Yellowish"
+]
 
-# Safe check: Make sure the weights file exists
-if not os.path.exists(weights_path):
-    print(f"❌ Error: '{weights_path}' not found!")
-    print("Please make sure the trained model weights file is in the same folder.")
-    sys.exit(1)
-
-# 3. Rebuild model structure and load weights
-model = models.mobilenet_v3_large()
-model.classifier[3] = nn.Linear(model.classifier[3].in_features, len(class_names))
-
-# map_location allows users without a GPU to run this smoothly on their CPU
-model.load_state_dict(torch.load(weights_path, map_location=device))
-model = model.to(device).eval()
-print("⚡ AI Model loaded successfully and ready for inference!")
-
-# 4. Image Preprocessing
-app_transform = transforms.Compose([
+# Image preprocessing pipeline (Standard ImageNet normalization)
+transform = transforms.Compose([
     transforms.Resize((224, 224)),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-# 5. Prediction function
-def classify_leaf(image):
+# Load models lazily or on startup
+def load_model(model_path, num_classes):
+    model = models.mobilenet_v3_large(weights=None)
+    num_features = model.classifier[3].in_features
+    model.classifier[3] = nn.Linear(num_features, num_classes)
+    model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))
+    model.eval()
+    return model
+
+# Load both models into memory
+rice_model = load_model("rice_disease_mobilenetv3_6class.pth", len(CLASS_NAMES_RICE))
+chili_model = load_model("chili_disease_mobilenetv3.pth", len(CLASS_NAMES_CHILI))
+
+def predict_disease(image, crop_type):
     if image is None:
         return "Please upload an image."
     
-    # Convert numpy array from Gradio interface to PIL Image
-    pil_img = Image.fromarray(image.astype('uint8'), 'RGB')
-    tensor_img = app_transform(pil_img).unsqueeze(0).to(device)
-    
-    with torch.no_grad():
-        outputs = model(tensor_img)
-        probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
-    
-    # Return dictionary mapping class name to probability score
-    return {class_names[i]: float(probabilities[i]) for i in range(len(class_names))}
+    # Select model and classes based on crop choice
+    if crop_type == "Rice":
+        model = rice_model
+        classes = CLASS_NAMES_RICE
+    elif crop_type == "Chili Pepper":
+        model = chili_model
+        classes = CLASS_NAMES_CHILI
+    else:
+        return "Invalid crop selection."
 
-# 6. Build the UI Layout
-ui = gr.Interface(
-    fn=classify_leaf,
-    inputs=gr.Image(),
-    outputs=gr.Label(num_top_classes=3),
-    title="🌾 Rice Leaf Disease Identifier",
-    description="Upload a photo of a rice leaf to diagnose its health status instantly using deep learning.",
-    theme="soft"
+    # Preprocess image
+    image_tensor = transform(image).unsqueeze(0)
+
+    # Inference
+    with torch.no_grad():
+        outputs = model(image_tensor)
+        probabilities = torch.nn.functional.softmax(outputs[0], dim=0)
+        
+    # Format top predictions into a dictionary for Gradio Label component
+    confidences = {classes[i]: float(probabilities[i]) for i in range(len(classes))}
+    return confidences
+
+# Gradio Interface UI
+interface = gr.Interface(
+    fn=predict_disease,
+    inputs=[
+        gr.Image(type="pil", label="Upload Leaf Image"),
+        gr.Dropdown(choices=["Rice", "Chili Pepper"], label="Select Crop Type", value="Rice")
+    ],
+    outputs=gr.Label(num_top_classes=3, label="Diagnosis Result"),
+    title="🌱 CropDoctor-AI: Multi-Crop Disease Diagnostic Platform",
+    description="Upload a leaf image of either Rice or Chili Pepper to detect diseases instantly using customized MobileNetV3 AI models.",
+    examples=[
+        ["testImage1.jpg", "Rice"],
+        ["testImage2.jpg", "Rice"]
+    ] if "testImage1.jpg" in __import__("os").listdir(".") else None
 )
 
-# 7. Launch the app locally
 if __name__ == "__main__":
-    ui.launch(share=False)
+    interface.launch()
