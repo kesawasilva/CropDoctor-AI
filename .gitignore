@@ -16,3 +16,4 @@ testImage3Healthy.jpg
 __pycache__/
 *.pyc
 .ipynb_checkpoints/
+TeaLeafDataset/
